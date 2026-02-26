@@ -8,7 +8,7 @@ use crate::stt;
 use crate::tray;
 use anyhow::{anyhow, Context, Result};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -25,6 +25,7 @@ enum AppState {
     Recording,
     Transcribing,
     Injecting,
+    Checking,
     Error,
 }
 
@@ -205,9 +206,11 @@ impl App {
             AppEvent::TrayOpenSettings => {
                 crate::settings::open(self.hwnd, self.cfg.clone(), self.store.path().to_path_buf());
             }
+            AppEvent::TrayCheckConnection => self.check_connection(),
             AppEvent::TrayExit => unsafe {
                 PostQuitMessage(0);
             },
+            AppEvent::ConnectionCheckDone(result) => self.finish_connection_check(result),
             AppEvent::SettingsUpdated => {
                 if let Ok(cfg) = self.store.load_or_default() {
                     self.cfg = cfg;
@@ -299,7 +302,10 @@ impl App {
         let duration_ms = buffer.duration_ms;
         let sample_rate = buffer.sample_rate;
         thread::spawn(move || {
+            let started = Instant::now();
             let result = stt::transcribe(&buffer, &cfg, &api_key);
+            let elapsed = started.elapsed().as_millis();
+            log::info!("stt request finished, duration_ms={}, ok={}", elapsed, result.is_ok());
             post_event(hwnd, AppEvent::TranscriptionDone(result));
         });
         log::info!(
@@ -336,6 +342,46 @@ impl App {
                 };
                 tray::show_notification(self.hwnd, "Ошибка", msg);
                 log::error!("transcription error: {}", err);
+            }
+        }
+        self.state = AppState::Idle;
+        tray::update_status(self.hwnd, "Idle");
+    }
+
+    fn check_connection(&mut self) {
+        if !matches!(self.state, AppState::Idle) {
+            tray::show_notification(self.hwnd, "Недоступно", "Действие доступно только в режиме ожидания");
+            return;
+        }
+        let api_key = match self.store.get_api_key(&self.cfg) {
+            Ok(Some(key)) => key,
+            _ => {
+                tray::show_notification(self.hwnd, "Ошибка", "Проверьте Groq API key");
+                return;
+            }
+        };
+        self.state = AppState::Checking;
+        tray::update_status(self.hwnd, "Checking");
+        tray::show_notification(self.hwnd, "Проверка", "Проверяем соединение");
+        let cfg = self.cfg.clone();
+        let hwnd = self.hwnd;
+        thread::spawn(move || {
+            let started = Instant::now();
+            let result = stt::check_connection(&cfg, &api_key);
+            let elapsed = started.elapsed().as_millis();
+            log::info!("connection check finished, duration_ms={}, ok={}", elapsed, result.is_ok());
+            post_event(hwnd, AppEvent::ConnectionCheckDone(result));
+        });
+    }
+
+    fn finish_connection_check(&mut self, result: Result<()>) {
+        match result {
+            Ok(_) => {
+                tray::show_notification(self.hwnd, "Готово", "Соединение с Groq успешно");
+            }
+            Err(err) => {
+                tray::show_notification(self.hwnd, "Ошибка", "Не удалось проверить соединение");
+                log::error!("connection check error: {}", err);
             }
         }
         self.state = AppState::Idle;
