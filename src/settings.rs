@@ -127,8 +127,8 @@ fn create_window(parent: HWND) -> Result<HWND> {
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            520,
-            520,
+            600,
+            420,
             parent,
             None,
             None,
@@ -188,36 +188,159 @@ unsafe extern "system" fn settings_wndproc(
 
 fn build_ui(hwnd: HWND, state: &mut SettingsState) {
     let mut y = 16;
-    let label_w = 160;
-    let field_w = 300;
+    let margin = 16;
+    let col_gap = 24;
+    let label_w = 100;
+    let field_w = 150;
     let h = 22;
     let gap = 8;
+    let col2_x = margin + label_w + field_w + col_gap;
+    let total_w = 2 * (label_w + field_w) + col_gap;
+    let full_field_w = total_w - label_w;
 
-    state.api_key_edit = add_edit(hwnd, "Groq API key", ID_API_KEY, y, true, label_w, field_w, h, state.font);
+    state.api_key_edit = add_edit_at(
+        hwnd,
+        "Groq API key",
+        ID_API_KEY,
+        margin,
+        y,
+        true,
+        label_w,
+        full_field_w,
+        h,
+        state.font,
+    );
     y += h + gap;
-    state.model_combo = add_combo(hwnd, "STT модель", ID_MODEL, y, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.lang_combo = add_combo(hwnd, "Язык", ID_LANG, y, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.hotkey_edit = add_edit(hwnd, "Hotkey", ID_HOTKEY, y, false, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.mode_combo = add_combo(hwnd, "Режим записи", ID_MODE, y, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.mic_combo = add_combo(hwnd, "Микрофон", ID_MIC, y, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.timeout_edit = add_edit(hwnd, "Timeout (сек)", ID_TIMEOUT, y, false, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.maxrec_edit = add_edit(hwnd, "Лимит записи (сек)", ID_MAXREC, y, false, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.inject_combo = add_combo(hwnd, "Вставка текста", ID_INJECT, y, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.loglevel_combo = add_combo(hwnd, "Логирование", ID_LOGLEVEL, y, label_w, field_w, h, state.font);
-    y += h + gap;
-    state.autostart_check = add_checkbox(hwnd, "Автозапуск с Windows", ID_AUTOSTART, 16 + label_w, y, field_w, h, state.font);
-    y += h + gap + 10;
 
-    add_button(hwnd, "Сохранить", ID_SAVE, 160, y, 120, 28, state.font);
-    add_button(hwnd, "Отмена", ID_CANCEL, 300, y, 120, 28, state.font);
+    state.hotkey_edit = add_edit_at(
+        hwnd,
+        "Hotkey",
+        ID_HOTKEY,
+        margin,
+        y,
+        false,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    state.model_combo = add_combo_at(
+        hwnd,
+        "STT модель",
+        ID_MODEL,
+        col2_x,
+        y,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    y += h + gap;
+
+    state.mode_combo = add_combo_at(
+        hwnd,
+        "Режим записи",
+        ID_MODE,
+        margin,
+        y,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    state.lang_combo = add_combo_at(
+        hwnd,
+        "Язык",
+        ID_LANG,
+        col2_x,
+        y,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    y += h + gap;
+
+    state.mic_combo = add_combo_at(
+        hwnd,
+        "Микрофон",
+        ID_MIC,
+        margin,
+        y,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    state.timeout_edit = add_edit_at(
+        hwnd,
+        "Timeout (сек)",
+        ID_TIMEOUT,
+        col2_x,
+        y,
+        false,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    y += h + gap;
+
+    state.maxrec_edit = add_edit_at(
+        hwnd,
+        "Лимит записи",
+        ID_MAXREC,
+        margin,
+        y,
+        false,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    state.inject_combo = add_combo_at(
+        hwnd,
+        "Вставка текста",
+        ID_INJECT,
+        col2_x,
+        y,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    y += h + gap;
+
+    state.autostart_check = add_checkbox_at(
+        hwnd,
+        "Автозапуск с Windows",
+        ID_AUTOSTART,
+        margin,
+        y,
+        label_w + field_w,
+        h,
+        state.font,
+    );
+    state.loglevel_combo = add_combo_at(
+        hwnd,
+        "Логирование",
+        ID_LOGLEVEL,
+        col2_x,
+        y,
+        label_w,
+        field_w,
+        h,
+        state.font,
+    );
+    y += h + gap + 12;
+
+    let btn_w = 120;
+    let btn_h = 28;
+    let btn_gap = 16;
+    let buttons_total = btn_w * 2 + btn_gap;
+    let btn_x = margin + (total_w - buttons_total) / 2;
+    add_button(hwnd, "Сохранить", ID_SAVE, btn_x, y, btn_w, btn_h, state.font);
+    add_button(hwnd, "Отмена", ID_CANCEL, btn_x + btn_w + btn_gap, y, btn_w, btn_h, state.font);
 
     populate_controls(state);
 }
@@ -361,10 +484,11 @@ fn add_label(hwnd: HWND, text: &str, x: i32, y: i32, w: i32, h: i32, font: HFONT
     }
 }
 
-fn add_edit(
+fn add_edit_at(
     hwnd: HWND,
     label: &str,
     id: usize,
+    x: i32,
     y: i32,
     password: bool,
     label_w: i32,
@@ -372,7 +496,7 @@ fn add_edit(
     h: i32,
     font: HFONT,
 ) -> HWND {
-    add_label(hwnd, label, 16, y, label_w, h, font);
+    add_label(hwnd, label, x, y, label_w, h, font);
     let mut style = windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
         WS_CHILD.0 | WS_VISIBLE.0 | WS_BORDER.0 | WS_TABSTOP.0 | ES_LEFT as u32,
     );
@@ -385,7 +509,7 @@ fn add_edit(
             PCWSTR(to_wide_null("EDIT").as_ptr()),
             PCWSTR(to_wide_null("").as_ptr()),
             style,
-            16 + label_w,
+            x + label_w,
             y,
             field_w,
             h,
@@ -399,17 +523,18 @@ fn add_edit(
     }
 }
 
-fn add_combo(
+fn add_combo_at(
     hwnd: HWND,
     label: &str,
     id: usize,
+    x: i32,
     y: i32,
     label_w: i32,
     field_w: i32,
     h: i32,
     font: HFONT,
 ) -> HWND {
-    add_label(hwnd, label, 16, y, label_w, h, font);
+    add_label(hwnd, label, x, y, label_w, h, font);
     unsafe {
         let combo = CreateWindowExW(
             WS_EX_CLIENTEDGE,
@@ -418,7 +543,7 @@ fn add_combo(
             windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
                 WS_CHILD.0 | WS_VISIBLE.0 | WS_TABSTOP.0 | WS_VSCROLL.0 | CBS_DROPDOWNLIST as u32,
             ),
-            16 + label_w,
+            x + label_w,
             y,
             field_w,
             h + 200,
@@ -454,7 +579,7 @@ fn add_button(hwnd: HWND, text: &str, id: usize, x: i32, y: i32, w: i32, h: i32,
     }
 }
 
-fn add_checkbox(hwnd: HWND, text: &str, id: usize, x: i32, y: i32, w: i32, h: i32, font: HFONT) -> HWND {
+fn add_checkbox_at(hwnd: HWND, text: &str, id: usize, x: i32, y: i32, w: i32, h: i32, font: HFONT) -> HWND {
     unsafe {
         let btn = CreateWindowExW(
             WS_EX_WINDOWEDGE,
