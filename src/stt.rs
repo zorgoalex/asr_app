@@ -12,10 +12,11 @@ struct TranscriptionResponse {
 
 pub fn transcribe(audio: &AudioBuffer, cfg: &AppConfig, api_key: &str) -> Result<String> {
     let url = format!("{}/audio/transcriptions", cfg.api_base_url.trim_end_matches('/'));
-    let client = Client::builder()
-        .timeout(Duration::from_secs(cfg.timeout_secs))
-        .build()
-        .context("failed to build http client")?;
+    let mut builder = Client::builder().timeout(Duration::from_secs(cfg.timeout_secs));
+    if !use_proxy_from_env() {
+        builder = builder.no_proxy();
+    }
+    let client = builder.build().context("failed to build http client")?;
 
     let mut form = Form::new()
         .part(
@@ -51,9 +52,23 @@ fn handle_response(response: Response) -> Result<String> {
     Ok(resp.text)
 }
 
+fn use_proxy_from_env() -> bool {
+    std::env::var("VOICE_ASR_USE_PROXY")
+        .map(|v| parse_bool_env(&v))
+        .unwrap_or(false)
+}
+
+fn parse_bool_env(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::transcribe;
+    use super::parse_bool_env;
     use crate::audio::AudioBuffer;
     use crate::config::AppConfig;
     use hound::WavSpec;
@@ -105,5 +120,17 @@ mod tests {
         cfg.timeout_secs = 60;
         let audio = make_test_audio();
         let _ = transcribe(&audio, &cfg, &api_key).expect("transcribe failed");
+    }
+
+    #[test]
+    fn parse_proxy_env_values() {
+        assert!(parse_bool_env("1"));
+        assert!(parse_bool_env("true"));
+        assert!(parse_bool_env("YES"));
+        assert!(parse_bool_env("On"));
+        assert!(!parse_bool_env("0"));
+        assert!(!parse_bool_env("false"));
+        assert!(!parse_bool_env("off"));
+        assert!(!parse_bool_env(""));
     }
 }

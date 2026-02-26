@@ -14,6 +14,23 @@ if (!(Test-Path $outDir)) {
     New-Item -ItemType Directory -Path $outDir | Out-Null
 }
 
+$cargo = Get-Command cargo -ErrorAction SilentlyContinue
+if (-not $cargo) {
+    $cargoPath = Join-Path $env:USERPROFILE ".cargo\\bin\\cargo.exe"
+    if (Test-Path $cargoPath) {
+        $cargo = Get-Command $cargoPath
+    }
+}
+if (-not $cargo) {
+    throw "cargo not found. Install Rust or add cargo to PATH."
+}
+
+$profileDir = if ($Profile -eq "release") { "release" } else { "debug" }
+if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "voice_asr_client_target"
+}
+$env:CARGO_INCREMENTAL = "0"
+
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $cargoToml = Join-Path $root "Cargo.toml"
     $versionLine = Select-String -Path $cargoToml -Pattern '^\s*version\s*=\s*"(.*)"' | Select-Object -First 1
@@ -26,15 +43,15 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 
 Push-Location $root
 if ($Profile -eq "release") {
-    & cargo build --release
+    & $cargo.Source build --release
 } else {
-    & cargo build
+    & $cargo.Source build
 }
 Pop-Location
 
 if (-not $SkipTests) {
     Write-Host "Running tests..." -ForegroundColor Cyan
-    & cargo test
+    & $cargo.Source test
 }
 
 if (-not $SkipNsis) {

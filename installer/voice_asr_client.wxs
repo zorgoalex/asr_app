@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<?ifndef AppBin?>
+<?define AppBin = "..\\target\\release\\voice_asr_client.exe"?>
+<?endif?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product
     Id="*"
@@ -13,13 +16,13 @@
     <MediaTemplate />
 
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
-    <Icon Id="AppIcon" SourceFile="..\target\release\voice_asr_client.exe" />
+    <Icon Id="AppIcon" SourceFile="$(var.AppBin)" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="LocalAppDataFolder">
         <Directory Id="INSTALLFOLDER" Name="VoiceASRClient">
           <Component Id="MainExeComponent" Guid="*">
-            <File Id="VoiceASRExe" Source="..\target\release\voice_asr_client.exe" KeyPath="yes" />
+            <File Id="VoiceASRExe" Source="$(var.AppBin)" KeyPath="yes" />
             <Shortcut
               Id="StartMenuShortcut"
               Directory="ApplicationProgramsFolder"
