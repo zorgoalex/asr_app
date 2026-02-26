@@ -44,6 +44,7 @@ pub fn run() -> Result<()> {
     logger::set_level(cfg.log_level);
     let hotkey = parse_hotkey(&cfg.hotkey).context("invalid hotkey")?;
     let record_mode = cfg.record_mode;
+    let autostart_enabled = cfg.autostart;
 
     let hwnd = create_hidden_window()?;
 
@@ -67,6 +68,9 @@ pub fn run() -> Result<()> {
     tray::init(hwnd)?;
 
     crate::hotkey::install(hwnd, hotkey, record_mode)?;
+    if let Err(err) = crate::autostart::set_enabled(autostart_enabled) {
+        log::error!("autostart sync failed: {}", err);
+    }
 
     tray::update_status(hwnd, "Idle");
     message_loop()?;

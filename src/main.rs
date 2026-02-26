@@ -1,4 +1,5 @@
 mod app;
+mod autostart;
 mod audio;
 mod config;
 mod events;

@@ -30,6 +30,7 @@ cargo build --release
 - `Лимит записи (сек)` — максимальная длина записи.
 - `Вставка текста` — `direct`, `clipboard`, `clipboard_only`.
 - `Логирование` — `info` или `debug`.
+- `Автозапуск с Windows` — включает запись в `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 Если поле API key оставить пустым, сохранится предыдущий ключ.
 
