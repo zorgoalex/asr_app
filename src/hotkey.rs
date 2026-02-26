@@ -176,3 +176,34 @@ fn update_key_state(state: &mut KeyState, vk: u16, is_down: bool, is_up: bool, m
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_basic_hotkey() {
+        let hk = parse_hotkey("Ctrl+Alt+Space").unwrap();
+        assert!(hk.modifiers.ctrl);
+        assert!(hk.modifiers.alt);
+        assert!(!hk.modifiers.shift);
+        assert_eq!(hk.vk, 0x20);
+    }
+
+    #[test]
+    fn parse_function_key() {
+        let hk = parse_hotkey("Shift+F5").unwrap();
+        assert!(hk.modifiers.shift);
+        assert_eq!(hk.vk, 0x70 + 4);
+    }
+
+    #[test]
+    fn missing_main_key_fails() {
+        assert!(parse_hotkey("Ctrl+Alt").is_err());
+    }
+
+    #[test]
+    fn multiple_main_keys_fail() {
+        assert!(parse_hotkey("Ctrl+A+B").is_err());
+    }
+}

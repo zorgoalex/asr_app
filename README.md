@@ -47,3 +47,9 @@ cargo build --release
 
 ## Безопасность
 API‑ключ хранится локально в зашифрованном виде через DPAPI (Windows).
+
+## Тесты
+Запуск:
+```powershell
+cargo test
+```

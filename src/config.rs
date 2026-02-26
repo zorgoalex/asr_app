@@ -6,14 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordMode {
     Hold,
     Toggle,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InjectMode {
     Direct,
@@ -21,14 +21,14 @@ pub enum InjectMode {
     ClipboardOnly,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LogLevel {
     Info,
     Debug,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AppConfig {
     pub hotkey: String,
     pub record_mode: RecordMode,
@@ -134,5 +134,40 @@ impl ConfigStore {
             .context("failed to decode api key")?;
         let plain = secret::unprotect(&bytes)?;
         Ok(Some(String::from_utf8_lossy(&plain).to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_config_path() -> PathBuf {
+        let dir = std::env::current_dir().unwrap().join("target").join("test_config");
+        let _ = fs::create_dir_all(&dir);
+        dir.join("config.json")
+    }
+
+    #[test]
+    fn config_roundtrip() {
+        let path = temp_config_path();
+        let store = ConfigStore::from_path(path.clone());
+        let cfg = AppConfig::default();
+        store.save(&cfg).unwrap();
+        let loaded = store.load_or_default().unwrap();
+        assert_eq!(cfg, loaded);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn api_key_roundtrip() {
+        let path = temp_config_path();
+        let store = ConfigStore::from_path(path.clone());
+        let mut cfg = AppConfig::default();
+        store.save(&cfg).unwrap();
+        store.set_api_key(&mut cfg, "test-key-123").unwrap();
+        let key = store.get_api_key(&cfg).unwrap().unwrap();
+        assert_eq!(key, "test-key-123");
+        let _ = fs::remove_file(path);
     }
 }

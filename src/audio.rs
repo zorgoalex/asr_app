@@ -166,3 +166,24 @@ fn downmix_i16(input: &[i16], channels: usize, out: &mut Vec<i16>) {
         out.push(avg);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::downmix_i16;
+
+    #[test]
+    fn downmix_stereo_to_mono() {
+        let input = vec![10i16, 30, 20, 40];
+        let mut out = Vec::new();
+        downmix_i16(&input, 2, &mut out);
+        assert_eq!(out, vec![20, 30]);
+    }
+
+    #[test]
+    fn downmix_mono_passthrough() {
+        let input = vec![1i16, 2, 3, 4];
+        let mut out = Vec::new();
+        downmix_i16(&input, 1, &mut out);
+        assert_eq!(out, input);
+    }
+}
