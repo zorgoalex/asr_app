@@ -1,5 +1,5 @@
 use crate::audio::{AudioRecorder, RecordingSession};
-use crate::config::{AppConfig, ConfigStore, RecordMode};
+use crate::config::{AppConfig, ConfigStore};
 use crate::events::{post_event, take_event, AppEvent, WM_APP_EVENT};
 use crate::hotkey::parse_hotkey;
 use crate::inject::inject_text;
@@ -7,20 +7,17 @@ use crate::logger;
 use crate::stt;
 use crate::tray;
 use anyhow::{anyhow, Context, Result};
-use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostQuitMessage, RegisterClassW,
-    TranslateMessage, CW_USEDEFAULT, MSG, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_DESTROY,
-    WM_NCCREATE,
+    TranslateMessage, CW_USEDEFAULT, GWLP_USERDATA, MSG, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND,
+    WM_DESTROY, WM_NCCREATE,
 };
 use windows::Win32::UI::WindowsAndMessaging::WNDCLASSW;
 use windows::core::PCWSTR;
-
-static APP: OnceLock<Mutex<App>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 enum AppState {
@@ -45,13 +42,10 @@ pub fn run() -> Result<()> {
     let store = ConfigStore::new()?;
     let cfg = store.load_or_default()?;
     logger::set_level(cfg.log_level);
+    let hotkey = parse_hotkey(&cfg.hotkey).context("invalid hotkey")?;
+    let record_mode = cfg.record_mode;
 
     let hwnd = create_hidden_window()?;
-
-    tray::init(hwnd)?;
-
-    let hotkey = parse_hotkey(&cfg.hotkey).context("invalid hotkey")?;
-    crate::hotkey::install(hwnd, hotkey, cfg.record_mode)?;
 
     let app = App {
         hwnd,
@@ -62,7 +56,17 @@ pub fn run() -> Result<()> {
         state: AppState::Idle,
         record_token: 0,
     };
-    APP.get_or_init(|| Mutex::new(app));
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+            hwnd,
+            GWLP_USERDATA,
+            Box::into_raw(Box::new(app)) as isize,
+        );
+    }
+
+    tray::init(hwnd)?;
+
+    crate::hotkey::install(hwnd, hotkey, record_mode)?;
 
     tray::update_status(hwnd, "Idle");
     message_loop()?;
@@ -74,7 +78,7 @@ fn message_loop() -> Result<()> {
     unsafe {
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, HWND(0), 0, 0).into() {
-            TranslateMessage(&msg);
+            let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     }
@@ -88,7 +92,7 @@ fn create_hidden_window() -> Result<HWND> {
         let hinstance = GetModuleHandleW(None)?;
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
-            hInstance: hinstance,
+            hInstance: hinstance.into(),
             lpszClassName: class_ptr,
             ..Default::default()
         };
@@ -136,20 +140,44 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         m if m == WM_APP_EVENT => {
             if lparam.0 != 0 {
                 let event = take_event(lparam);
-                if let Some(app) = APP.get() {
-                    if let Ok(mut guard) = app.lock() {
-                        guard.handle_event(*event);
-                    }
+                if let Some(app) = get_app_mut(hwnd) {
+                    app.handle_event(*event);
                 }
             }
             LRESULT(0)
         }
         WM_DESTROY => {
+            if let Some(app) = get_app_ptr(hwnd) {
+                unsafe {
+                    let _ = Box::from_raw(app);
+                    windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+                        hwnd,
+                        GWLP_USERDATA,
+                        0,
+                    );
+                }
+            }
             PostQuitMessage(0);
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
+}
+
+fn get_app_ptr(hwnd: HWND) -> Option<*mut App> {
+    let ptr = unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(hwnd, GWLP_USERDATA)
+    };
+    if ptr == 0 {
+        None
+    } else {
+        Some(ptr as *mut App)
+    }
+}
+
+fn get_app_mut(hwnd: HWND) -> Option<&'static mut App> {
+    let ptr = get_app_ptr(hwnd)?;
+    unsafe { Some(&mut *ptr) }
 }
 
 impl App {
@@ -195,16 +223,24 @@ impl App {
         let recorder = match AudioRecorder::new(self.cfg.input_device.clone()) {
             Ok(r) => r,
             Err(err) => {
+                self.state = AppState::Error;
+                tray::update_status(self.hwnd, "Error");
                 tray::show_notification(self.hwnd, "Ошибка", "Микрофон недоступен");
                 log::error!("audio device error: {}", err);
+                self.state = AppState::Idle;
+                tray::update_status(self.hwnd, "Idle");
                 return;
             }
         };
         let session = match recorder.start() {
             Ok(s) => s,
             Err(err) => {
+                self.state = AppState::Error;
+                tray::update_status(self.hwnd, "Error");
                 tray::show_notification(self.hwnd, "Ошибка", "Не удалось начать запись");
                 log::error!("audio start error: {}", err);
+                self.state = AppState::Idle;
+                tray::update_status(self.hwnd, "Idle");
                 return;
             }
         };
@@ -232,6 +268,8 @@ impl App {
         let buffer = match session.stop() {
             Ok(b) => b,
             Err(err) => {
+                self.state = AppState::Error;
+                tray::update_status(self.hwnd, "Error");
                 tray::show_notification(self.hwnd, "Ошибка", "Не удалось завершить запись");
                 log::error!("audio stop error: {}", err);
                 self.state = AppState::Idle;
@@ -254,11 +292,18 @@ impl App {
             }
         };
         let audio_size = buffer.wav_data.len();
+        let duration_ms = buffer.duration_ms;
+        let sample_rate = buffer.sample_rate;
         thread::spawn(move || {
             let result = stt::transcribe(&buffer, &cfg, &api_key);
             post_event(hwnd, AppEvent::TranscriptionDone(result));
         });
-        log::info!("recording stopped, bytes={}", audio_size);
+        log::info!(
+            "recording stopped, bytes={}, duration_ms={}, sample_rate={}",
+            audio_size,
+            duration_ms,
+            sample_rate
+        );
     }
 
     fn finish_transcription(&mut self, result: Result<String>) {
@@ -278,6 +323,8 @@ impl App {
                 }
             }
             Err(err) => {
+                self.state = AppState::Error;
+                tray::update_status(self.hwnd, "Error");
                 let msg = if err.to_string().contains("missing api key") {
                     "Проверьте Groq API key"
                 } else {

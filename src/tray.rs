@@ -29,14 +29,15 @@ pub fn init(hwnd: HWND) -> Result<()> {
 
 pub fn destroy(hwnd: HWND) {
     unsafe {
-        let mut nid = base_nid(hwnd);
-        let _ = Shell_NotifyIconW(NIM_DELETE, &mut nid);
+        if let Ok(mut nid) = base_nid(hwnd) {
+            let _ = Shell_NotifyIconW(NIM_DELETE, &mut nid);
+        }
     }
 }
 
 pub fn update_status(hwnd: HWND, status: &str) {
     unsafe {
-        let mut nid = base_nid(hwnd);
+        let Ok(mut nid) = base_nid(hwnd) else { return };
         let tip = to_wide_null(&format!("Voice ASR Client - {}", status));
         let len = tip.len().min(nid.szTip.len());
         nid.szTip[..len].copy_from_slice(&tip[..len]);
@@ -47,7 +48,7 @@ pub fn update_status(hwnd: HWND, status: &str) {
 
 pub fn show_notification(hwnd: HWND, title: &str, message: &str) {
     unsafe {
-        let mut nid = base_nid(hwnd);
+        let Ok(mut nid) = base_nid(hwnd) else { return };
         let title_w = to_wide_null(title);
         let msg_w = to_wide_null(message);
         nid.uFlags = NIF_INFO;
@@ -87,15 +88,12 @@ pub fn handle_command(hwnd: HWND, wparam: usize) -> bool {
 }
 
 fn create_menu() -> Result<()> {
-    let menu = unsafe { CreatePopupMenu() };
-    if menu.0 == 0 {
-        return Err(anyhow!("CreatePopupMenu failed"));
-    }
+    let menu = unsafe { CreatePopupMenu()? };
     unsafe {
         let settings = to_wide_null("Настройки");
         let exit = to_wide_null("Выход");
-        AppendMenuW(menu, MF_STRING, ID_SETTINGS, PCWSTR(settings.as_ptr()));
-        AppendMenuW(menu, MF_STRING, ID_EXIT, PCWSTR(exit.as_ptr()));
+        let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, PCWSTR(settings.as_ptr()));
+        let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, PCWSTR(exit.as_ptr()));
     }
     TRAY_MENU.get_or_init(|| menu);
     Ok(())
@@ -105,10 +103,10 @@ fn show_menu(hwnd: HWND) {
     let Some(menu) = TRAY_MENU.get() else { return };
     unsafe {
         let mut point = Default::default();
-        if !GetCursorPos(&mut point).as_bool() {
+        if GetCursorPos(&mut point).is_err() {
             return;
         }
-        SetForegroundWindow(hwnd);
+        let _ = SetForegroundWindow(hwnd);
         let _ = TrackPopupMenu(
             *menu,
             TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON,
@@ -123,7 +121,7 @@ fn show_menu(hwnd: HWND) {
 
 fn add_tray_icon(hwnd: HWND) -> Result<()> {
     unsafe {
-        let mut nid = base_nid(hwnd);
+        let mut nid = base_nid(hwnd)?;
         let tip = to_wide_null("Voice ASR Client - Idle");
         nid.szTip[..tip.len()].copy_from_slice(&tip);
         nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
@@ -131,18 +129,20 @@ fn add_tray_icon(hwnd: HWND) -> Result<()> {
         if !ok {
             return Err(anyhow!("Shell_NotifyIconW NIM_ADD failed"));
         }
-        nid.uVersion = NOTIFYICON_VERSION_4;
+        nid.Anonymous.uVersion = NOTIFYICON_VERSION_4;
         let _ = Shell_NotifyIconW(NIM_MODIFY, &mut nid);
     }
     Ok(())
 }
 
-fn base_nid(hwnd: HWND) -> NOTIFYICONDATAW {
+fn base_nid(hwnd: HWND) -> Result<NOTIFYICONDATAW> {
     let mut nid = NOTIFYICONDATAW::default();
     nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
     nid.hWnd = hwnd;
     nid.uID = TRAY_ID;
     nid.uCallbackMessage = WM_TRAYICON;
-    nid.hIcon = unsafe { LoadIconW(None, windows::Win32::UI::WindowsAndMessaging::IDI_APPLICATION) };
-    nid
+    nid.hIcon = unsafe {
+        LoadIconW(None, windows::Win32::UI::WindowsAndMessaging::IDI_APPLICATION)?
+    };
+    Ok(nid)
 }

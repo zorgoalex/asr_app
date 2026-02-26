@@ -5,7 +5,7 @@ use directories::ProjectDirs;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
@@ -17,7 +17,7 @@ pub fn init() -> Result<()> {
     let logger = FileLogger::new(MAX_LOG_BYTES)?;
     log::set_max_level(LevelFilter::Info);
     log::set_logger(LOGGER.get_or_init(|| logger))
-        .context("failed to set logger")?;
+        .map_err(|e| anyhow::anyhow!("failed to set logger: {e:?}"))?;
     Ok(())
 }
 

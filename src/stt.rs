@@ -1,8 +1,7 @@
 use crate::audio::AudioBuffer;
 use crate::config::AppConfig;
 use anyhow::{anyhow, Context, Result};
-use reqwest::blocking::{Client, Response};
-use reqwest::multipart::{Form, Part};
+use reqwest::blocking::{multipart::Form, multipart::Part, Client, Response};
 use serde::Deserialize;
 use std::time::Duration;
 

@@ -46,7 +46,7 @@ impl AudioRecorder {
         };
 
         let mut config = device.default_input_config()?;
-        if let Ok(mut supported) = device.supported_input_configs() {
+        if let Ok(supported) = device.supported_input_configs() {
             for range in supported {
                 if range.min_sample_rate().0 <= 16_000 && range.max_sample_rate().0 >= 16_000 {
                     let with_rate = range.with_sample_rate(cpal::SampleRate(16_000));
@@ -85,7 +85,7 @@ impl AudioRecorder {
                 &self.config,
                 move |data: &[u16], _| {
                     let mut guard = samples_clone.lock().unwrap();
-                    let mut tmp: Vec<i16> = data.iter().map(|s| Sample::to_i16(s)).collect();
+                    let tmp: Vec<i16> = data.iter().map(|s| s.to_sample::<i16>()).collect();
                     downmix_i16(&tmp, channels, &mut guard);
                 },
                 err_fn,
@@ -95,7 +95,7 @@ impl AudioRecorder {
                 &self.config,
                 move |data: &[f32], _| {
                     let mut guard = samples_clone.lock().unwrap();
-                    let mut tmp: Vec<i16> = data.iter().map(|s| Sample::to_i16(s)).collect();
+                    let tmp: Vec<i16> = data.iter().map(|s| s.to_sample::<i16>()).collect();
                     downmix_i16(&tmp, channels, &mut guard);
                 },
                 err_fn,

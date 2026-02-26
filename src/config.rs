@@ -143,7 +143,13 @@ mod tests {
     use std::fs;
 
     fn temp_config_path() -> PathBuf {
-        let dir = std::env::current_dir().unwrap().join("target").join("test_config");
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir()
+            .join("voice_asr_client_tests")
+            .join(format!("config-{}", nanos));
         let _ = fs::create_dir_all(&dir);
         dir.join("config.json")
     }
