@@ -9,14 +9,16 @@ use windows::Win32::UI::Shell::{
 };
 use windows::core::PCWSTR;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, GetCursorPos, LoadIconW, SetForegroundWindow, TrackPopupMenu,
-    HMENU, MF_STRING, TPM_BOTTOMALIGN, TPM_LEFTALIGN, TPM_RIGHTBUTTON, WM_LBUTTONUP,
-    WM_RBUTTONUP,
+    AppendMenuW, CreatePopupMenu, GetCursorPos, LoadIconW, ModifyMenuW, SetForegroundWindow,
+    TrackPopupMenu, HMENU, MF_BYCOMMAND, MF_GRAYED, MF_STRING, TPM_BOTTOMALIGN, TPM_LEFTALIGN,
+    TPM_RIGHTBUTTON, WM_LBUTTONUP, WM_RBUTTONUP,
 };
 
 pub const WM_TRAYICON: u32 = 0x8001;
 const TRAY_ID: u32 = 1;
+const ID_STATUS: usize = 1000;
 const ID_SETTINGS: usize = 1001;
+const ID_CHECK: usize = 1003;
 const ID_EXIT: usize = 1002;
 
 static TRAY_MENU: OnceLock<HMENU> = OnceLock::new();
@@ -44,6 +46,7 @@ pub fn update_status(hwnd: HWND, status: &str) {
         nid.uFlags = NIF_TIP;
         let _ = Shell_NotifyIconW(NIM_MODIFY, &mut nid);
     }
+    update_menu_status(status);
 }
 
 pub fn show_notification(hwnd: HWND, title: &str, message: &str) {
@@ -75,8 +78,13 @@ pub fn handle_tray_message(hwnd: HWND, lparam: LPARAM) -> bool {
 
 pub fn handle_command(hwnd: HWND, wparam: usize) -> bool {
     match wparam {
+        ID_STATUS => true,
         ID_SETTINGS => {
             post_event(hwnd, AppEvent::TrayOpenSettings);
+            true
+        }
+        ID_CHECK => {
+            post_event(hwnd, AppEvent::TrayCheckConnection);
             true
         }
         ID_EXIT => {
@@ -90,8 +98,12 @@ pub fn handle_command(hwnd: HWND, wparam: usize) -> bool {
 fn create_menu() -> Result<()> {
     let menu = unsafe { CreatePopupMenu()? };
     unsafe {
+        let status = to_wide_null("Статус: Idle");
+        let check = to_wide_null("Проверка соединения");
         let settings = to_wide_null("Настройки");
         let exit = to_wide_null("Выход");
+        let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, ID_STATUS, PCWSTR(status.as_ptr()));
+        let _ = AppendMenuW(menu, MF_STRING, ID_CHECK, PCWSTR(check.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, PCWSTR(settings.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, PCWSTR(exit.as_ptr()));
     }
@@ -115,6 +127,20 @@ fn show_menu(hwnd: HWND) {
             0,
             hwnd,
             None,
+        );
+    }
+}
+
+fn update_menu_status(status: &str) {
+    let Some(menu) = TRAY_MENU.get() else { return };
+    unsafe {
+        let text = to_wide_null(&format!("Статус: {}", status));
+        let _ = ModifyMenuW(
+            *menu,
+            ID_STATUS as u32,
+            MF_BYCOMMAND | MF_STRING | MF_GRAYED,
+            ID_STATUS,
+            PCWSTR(text.as_ptr()),
         );
     }
 }

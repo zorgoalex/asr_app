@@ -12,11 +12,7 @@ struct TranscriptionResponse {
 
 pub fn transcribe(audio: &AudioBuffer, cfg: &AppConfig, api_key: &str) -> Result<String> {
     let url = format!("{}/audio/transcriptions", cfg.api_base_url.trim_end_matches('/'));
-    let mut builder = Client::builder().timeout(Duration::from_secs(cfg.timeout_secs));
-    if !use_proxy_from_env() {
-        builder = builder.no_proxy();
-    }
-    let client = builder.build().context("failed to build http client")?;
+    let client = build_client(cfg)?;
 
     let mut form = Form::new()
         .part(
@@ -42,6 +38,22 @@ pub fn transcribe(audio: &AudioBuffer, cfg: &AppConfig, api_key: &str) -> Result
     handle_response(response)
 }
 
+pub fn check_connection(cfg: &AppConfig, api_key: &str) -> Result<()> {
+    let url = format!("{}/models", cfg.api_base_url.trim_end_matches('/'));
+    let client = build_client(cfg)?;
+    let response = client
+        .get(url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .send()
+        .context("failed to send connection check request")?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        return Err(anyhow!("api error {}: {}", status, body));
+    }
+    Ok(())
+}
+
 fn handle_response(response: Response) -> Result<String> {
     let status = response.status();
     if !status.is_success() {
@@ -50,6 +62,14 @@ fn handle_response(response: Response) -> Result<String> {
     }
     let resp: TranscriptionResponse = response.json().context("invalid response")?;
     Ok(resp.text)
+}
+
+fn build_client(cfg: &AppConfig) -> Result<Client> {
+    let mut builder = Client::builder().timeout(Duration::from_secs(cfg.timeout_secs));
+    if !use_proxy_from_env() {
+        builder = builder.no_proxy();
+    }
+    builder.build().context("failed to build http client")
 }
 
 fn use_proxy_from_env() -> bool {

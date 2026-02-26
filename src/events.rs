@@ -9,7 +9,9 @@ pub enum AppEvent {
     HotkeyToggle,
     AutoStop(u64),
     TranscriptionDone(Result<String>),
+    ConnectionCheckDone(Result<()>),
     TrayOpenSettings,
+    TrayCheckConnection,
     TrayExit,
     SettingsUpdated,
 }
