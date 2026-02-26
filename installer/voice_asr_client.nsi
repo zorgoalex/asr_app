@@ -3,6 +3,11 @@
 !define APP_VERSION "0.1.0"
 !define ROOT_DIR ".."
 !define OUT_DIR "${ROOT_DIR}\installer\out"
+!ifdef APP_BIN
+  !define APP_BIN_PATH "${APP_BIN}"
+!else
+  !define APP_BIN_PATH "${ROOT_DIR}\target\release\${APP_EXE}"
+!endif
 
 OutFile "${OUT_DIR}\VoiceASRClient-${APP_VERSION}-setup.exe"
 InstallDir "$LOCALAPPDATA\VoiceASRClient"
@@ -15,7 +20,7 @@ UninstPage instfiles
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File "${ROOT_DIR}\target\release\${APP_EXE}"
+  File "${APP_BIN_PATH}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
