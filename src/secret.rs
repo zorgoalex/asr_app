@@ -53,3 +53,16 @@ pub fn unprotect(data: &[u8]) -> Result<Vec<u8>> {
         Ok(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protect_roundtrip() {
+        let input = b"hello-world";
+        let enc = protect(input).unwrap();
+        let dec = unprotect(&enc).unwrap();
+        assert_eq!(dec, input);
+    }
+}
