@@ -50,3 +50,60 @@ fn handle_response(response: Response) -> Result<String> {
     let resp: TranscriptionResponse = response.json().context("invalid response")?;
     Ok(resp.text)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::transcribe;
+    use crate::audio::AudioBuffer;
+    use crate::config::AppConfig;
+    use hound::WavSpec;
+    use std::f32::consts::PI;
+    use std::io::Cursor;
+
+    fn make_test_audio() -> AudioBuffer {
+        let sample_rate = 16_000u32;
+        let duration_ms = 1_000u64;
+        let samples_len = (sample_rate as u64 * duration_ms / 1000) as usize;
+        let freq_hz = 440.0f32;
+        let amp = i16::MAX as f32 * 0.2;
+        let mut samples = Vec::with_capacity(samples_len);
+        for i in 0..samples_len {
+            let t = i as f32 / sample_rate as f32;
+            let sample = (2.0 * PI * freq_hz * t).sin() * amp;
+            samples.push(sample as i16);
+        }
+
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut writer = hound::WavWriter::new(&mut cursor, spec)
+                .expect("failed to create wav writer");
+            for s in samples {
+                writer.write_sample(s).expect("failed to write sample");
+            }
+            writer.finalize().expect("failed to finalize wav");
+        }
+
+        AudioBuffer {
+            wav_data: cursor.into_inner(),
+            sample_rate,
+            duration_ms,
+        }
+    }
+
+    #[test]
+    #[ignore = "requires GROQ_API_KEY and network access"]
+    fn groq_transcribe_smoke() {
+        let api_key = std::env::var("GROQ_API_KEY")
+            .expect("set GROQ_API_KEY to run the Groq integration test");
+        let mut cfg = AppConfig::default();
+        cfg.timeout_secs = 60;
+        let audio = make_test_audio();
+        let _ = transcribe(&audio, &cfg, &api_key).expect("transcribe failed");
+    }
+}
