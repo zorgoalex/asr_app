@@ -72,11 +72,27 @@ if (-not $candle -or -not $light) {
 $wxs = Join-Path $PSScriptRoot "voice_asr_client.wxs"
 $obj = Join-Path $PSScriptRoot "voice_asr_client.wixobj"
 $msi = Join-Path $outDir "VoiceASRClient-0.1.0.msi"
+$cab = Join-Path $outDir "cab1.cab"
+$wixpdb = Join-Path $outDir "VoiceASRClient-0.1.0.wixpdb"
+$tempOutDir = Join-Path $env:TEMP ("voice_asr_client_msi_" + [guid]::NewGuid().ToString("N"))
+$msiTemp = Join-Path $tempOutDir "VoiceASRClient-0.1.0.msi"
+$wixpdbTemp = Join-Path $tempOutDir "VoiceASRClient-0.1.0.wixpdb"
 
 if (-not (Test-Path $binPath)) {
     throw "Binary not found at $binPath"
 }
+Remove-Item -LiteralPath $obj, $cab, $msi, $wixpdb -ErrorAction SilentlyContinue
+if (!(Test-Path $tempOutDir)) {
+    New-Item -ItemType Directory -Path $tempOutDir | Out-Null
+}
 $candleArgs = @("-nologo", "-dAppBin=$binPath", "-out", $obj, $wxs)
 & $candle.Source @candleArgs
-$lightArgs = @("-nologo", "-sval", "-ext", "WixUIExtension", "-out", $msi, $obj)
+$lightArgs = @("-nologo", "-sval", "-ext", "WixUIExtension", "-out", $msiTemp, $obj)
 & $light.Source @lightArgs
+if (Test-Path $msiTemp) {
+    Copy-Item -LiteralPath $msiTemp -Destination $msi -Force
+}
+if (Test-Path $wixpdbTemp) {
+    Copy-Item -LiteralPath $wixpdbTemp -Destination $wixpdb -Force
+}
+Remove-Item -LiteralPath $tempOutDir -Recurse -Force -ErrorAction SilentlyContinue
