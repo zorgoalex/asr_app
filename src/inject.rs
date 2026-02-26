@@ -1,15 +1,15 @@
 use crate::config::InjectMode;
 use anyhow::{anyhow, Result};
-use windows::Win32::Foundation::{HANDLE, HWND};
+use windows::Win32::Foundation::{HGLOBAL, HANDLE, HWND};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData, CF_UNICODETEXT,
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
     GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
-    VK_CONTROL, VK_V,
+    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+    KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_CONTROL, VK_V,
 };
 
 pub fn inject_text(text: &str, mode: InjectMode) -> Result<()> {
@@ -37,6 +37,8 @@ pub fn inject_text(text: &str, mode: InjectMode) -> Result<()> {
     Ok(())
 }
 
+const CF_UNICODETEXT: u32 = 13;
+
 fn send_unicode(text: &str) -> Result<()> {
     let mut inputs: Vec<INPUT> = Vec::with_capacity(text.len() * 2);
     for unit in text.encode_utf16() {
@@ -44,7 +46,7 @@ fn send_unicode(text: &str) -> Result<()> {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
                 ki: KEYBDINPUT {
-                    wVk: 0,
+                    wVk: VIRTUAL_KEY(0),
                     wScan: unit,
                     dwFlags: KEYEVENTF_UNICODE,
                     time: 0,
@@ -56,7 +58,7 @@ fn send_unicode(text: &str) -> Result<()> {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
                 ki: KEYBDINPUT {
-                    wVk: 0,
+                    wVk: VIRTUAL_KEY(0),
                     wScan: unit,
                     dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
                     time: 0,
@@ -102,7 +104,7 @@ fn send_ctrl_v() -> Result<()> {
 }
 
 fn key_input(vk: u16, key_up: bool) -> INPUT {
-    let mut flags = 0;
+    let mut flags = KEYBD_EVENT_FLAGS(0);
     if key_up {
         flags |= KEYEVENTF_KEYUP;
     }
@@ -110,7 +112,7 @@ fn key_input(vk: u16, key_up: bool) -> INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: vk,
+                wVk: VIRTUAL_KEY(vk),
                 wScan: 0,
                 dwFlags: flags,
                 time: 0,
@@ -122,46 +124,35 @@ fn key_input(vk: u16, key_up: bool) -> INPUT {
 
 fn set_clipboard_text(text: &str) -> Result<()> {
     unsafe {
-        if !OpenClipboard(HWND(0)).as_bool() {
-            return Err(anyhow!("OpenClipboard failed"));
-        }
+        OpenClipboard(HWND(0)).map_err(|e| anyhow!("OpenClipboard failed: {e}"))?;
         let _ = EmptyClipboard();
         let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
         let size = wide.len() * 2;
-        let hmem: HANDLE = GlobalAlloc(GMEM_MOVEABLE, size);
-        if hmem.0 == 0 {
-            CloseClipboard();
-            return Err(anyhow!("GlobalAlloc failed"));
-        }
+        let hmem: HGLOBAL = GlobalAlloc(GMEM_MOVEABLE, size).map_err(|e| anyhow!("GlobalAlloc failed: {e}"))?;
         let ptr = GlobalLock(hmem) as *mut u8;
         if ptr.is_null() {
-            CloseClipboard();
+            let _ = CloseClipboard();
             return Err(anyhow!("GlobalLock failed"));
         }
         std::ptr::copy_nonoverlapping(wide.as_ptr() as *const u8, ptr, size);
-        GlobalUnlock(hmem);
-        if SetClipboardData(CF_UNICODETEXT.0 as u32, hmem).0 == 0 {
-            CloseClipboard();
-            return Err(anyhow!("SetClipboardData failed"));
-        }
-        CloseClipboard();
+        let _ = GlobalUnlock(hmem);
+        let handle = HANDLE(hmem.0 as isize);
+        SetClipboardData(CF_UNICODETEXT, handle)
+            .map_err(|e| anyhow!("SetClipboardData failed: {e}"))?;
+        let _ = CloseClipboard();
     }
     Ok(())
 }
 
 fn get_clipboard_text() -> Result<String> {
     unsafe {
-        if !OpenClipboard(HWND(0)).as_bool() {
-            return Err(anyhow!("OpenClipboard failed"));
-        }
-        let handle = GetClipboardData(CF_UNICODETEXT.0 as u32);
-        if handle.0 == 0 {
-            CloseClipboard();
-            return Err(anyhow!("GetClipboardData failed"));
-        }
-        let ptr = GlobalLock(handle) as *const u16;
+        OpenClipboard(HWND(0)).map_err(|e| anyhow!("OpenClipboard failed: {e}"))?;
+        let handle = GetClipboardData(CF_UNICODETEXT)
+            .map_err(|e| anyhow!("GetClipboardData failed: {e}"))?;
+        let hglobal = HGLOBAL(handle.0 as *mut std::ffi::c_void);
+        let ptr = GlobalLock(hglobal) as *const u16;
         if ptr.is_null() {
-            CloseClipboard();
+            let _ = CloseClipboard();
             return Err(anyhow!("GlobalLock failed"));
         }
         let mut len = 0usize;
@@ -170,8 +161,8 @@ fn get_clipboard_text() -> Result<String> {
         }
         let slice = std::slice::from_raw_parts(ptr, len);
         let text = String::from_utf16_lossy(slice);
-        GlobalUnlock(handle);
-        CloseClipboard();
+        let _ = GlobalUnlock(hglobal);
+        let _ = CloseClipboard();
         Ok(text)
     }
 }

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use anyhow::Result;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 

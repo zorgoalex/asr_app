@@ -4,9 +4,11 @@ use anyhow::{anyhow, Result};
 use std::sync::{Mutex, OnceLock};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    CallNextHookEx, SetWindowsHookExW, HC_ACTION, KBDLLHOOKSTRUCT, VK_LCONTROL, VK_LMENU,
-    VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT, WH_KEYBOARD_LL,
-    WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, SetWindowsHookExW, HC_ACTION, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYDOWN,
+    WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -36,14 +38,22 @@ struct KeyState {
 static HOTKEY_STATE: OnceLock<Mutex<(Hotkey, RecordMode, KeyState)>> = OnceLock::new();
 static EVENT_HWND: OnceLock<HWND> = OnceLock::new();
 
+const VK_LCONTROL_V: u16 = VK_LCONTROL.0;
+const VK_RCONTROL_V: u16 = VK_RCONTROL.0;
+const VK_LMENU_V: u16 = VK_LMENU.0;
+const VK_RMENU_V: u16 = VK_RMENU.0;
+const VK_LSHIFT_V: u16 = VK_LSHIFT.0;
+const VK_RSHIFT_V: u16 = VK_RSHIFT.0;
+const VK_SHIFT_V: u16 = VK_SHIFT.0;
+const VK_LWIN_V: u16 = VK_LWIN.0;
+const VK_RWIN_V: u16 = VK_RWIN.0;
+
 pub fn install(hwnd: HWND, hotkey: Hotkey, mode: RecordMode) -> Result<()> {
     EVENT_HWND.get_or_init(|| hwnd);
     HOTKEY_STATE.get_or_init(|| Mutex::new((hotkey, mode, KeyState::default())));
     unsafe {
-        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), HINSTANCE(0), 0);
-        if hook.0 == 0 {
-            return Err(anyhow!("failed to install keyboard hook"));
-        }
+        let _hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), HINSTANCE(0), 0)
+            .map_err(|e| anyhow!("failed to install keyboard hook: {e}"))?;
     }
     Ok(())
 }
@@ -120,7 +130,7 @@ fn parse_vk(token: &str) -> Result<u16> {
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code == HC_ACTION {
+    if code == HC_ACTION as i32 {
         let kb = *(lparam.0 as *const KBDLLHOOKSTRUCT);
         let vk = kb.vkCode as u16;
         let is_down = wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN;
@@ -165,10 +175,10 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 fn update_key_state(state: &mut KeyState, vk: u16, is_down: bool, is_up: bool, main_vk: u16) {
     if is_down || is_up {
         match vk {
-            VK_LCONTROL.0 | VK_RCONTROL.0 => state.ctrl = is_down,
-            VK_LMENU.0 | VK_RMENU.0 => state.alt = is_down,
-            VK_LSHIFT.0 | VK_RSHIFT.0 | VK_SHIFT.0 => state.shift = is_down,
-            VK_LWIN.0 | VK_RWIN.0 => state.win = is_down,
+            VK_LCONTROL_V | VK_RCONTROL_V => state.ctrl = is_down,
+            VK_LMENU_V | VK_RMENU_V => state.alt = is_down,
+            VK_LSHIFT_V | VK_RSHIFT_V | VK_SHIFT_V => state.shift = is_down,
+            VK_LWIN_V | VK_RWIN_V => state.win = is_down,
             _ => {}
         }
         if vk == main_vk {

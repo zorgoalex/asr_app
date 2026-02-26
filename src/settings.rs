@@ -3,7 +3,7 @@ use crate::config::{AppConfig, ConfigStore, InjectMode, LogLevel, RecordMode};
 use crate::events::{post_event, AppEvent};
 use crate::hotkey::parse_hotkey;
 use crate::win::to_wide_null;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use windows::core::PCWSTR;
@@ -19,7 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_VISIBLE, WS_VSCROLL, BS_PUSHBUTTON, CBS_DROPDOWNLIST,
 };
 
-static SETTINGS_HWND: OnceLock<HWND> = OnceLock::new();
+static SETTINGS_HWND: OnceLock<std::sync::Mutex<Option<HWND>>> = OnceLock::new();
 
 const ID_SAVE: usize = 2001;
 const ID_CANCEL: usize = 2002;
@@ -53,11 +53,13 @@ struct SettingsState {
 }
 
 pub fn open(parent: HWND, cfg: AppConfig, config_path: PathBuf) {
-    if let Some(hwnd) = SETTINGS_HWND.get() {
-        unsafe {
-            ShowWindow(*hwnd, SW_SHOW);
+    let guard = SETTINGS_HWND
+        .get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(current) = guard.lock() {
+        if let Some(hwnd) = *current {
+            unsafe { let _ = ShowWindow(hwnd, SW_SHOW); };
+            return;
         }
-        return;
     }
 
     let device_names = list_input_devices().unwrap_or_default();
@@ -72,7 +74,7 @@ pub fn open(parent: HWND, cfg: AppConfig, config_path: PathBuf) {
     };
 
     unsafe {
-        ShowWindow(hwnd, SW_SHOW);
+        let _ = ShowWindow(hwnd, SW_SHOW);
     }
 
     let font = unsafe { HFONT(GetStockObject(DEFAULT_GUI_FONT).0) };
@@ -95,7 +97,9 @@ pub fn open(parent: HWND, cfg: AppConfig, config_path: PathBuf) {
     };
 
     build_ui(hwnd, &mut state);
-    SETTINGS_HWND.get_or_init(|| hwnd);
+    if let Ok(mut current) = guard.lock() {
+        *current = Some(hwnd);
+    }
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(Box::new(state)) as isize);
     }
@@ -108,7 +112,7 @@ fn create_window(parent: HWND) -> Result<HWND> {
         let title = to_wide_null("Настройки Voice ASR");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(settings_wndproc),
-            hCursor: LoadCursorW(None, windows::Win32::UI::WindowsAndMessaging::IDC_ARROW),
+            hCursor: LoadCursorW(None, windows::Win32::UI::WindowsAndMessaging::IDC_ARROW)?,
             lpszClassName: class_ptr,
             ..Default::default()
         };
@@ -154,21 +158,25 @@ unsafe extern "system" fn settings_wndproc(
                     return LRESULT(0);
                 }
                 if id == ID_CANCEL {
-                    DestroyWindow(hwnd);
+                    let _ = DestroyWindow(hwnd);
                     return LRESULT(0);
                 }
             }
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }
         WM_CLOSE => {
-            DestroyWindow(hwnd);
+            let _ = DestroyWindow(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
             if let Some(state) = get_state(hwnd) {
                 let _ = Box::from_raw(state as *mut SettingsState);
             }
-            SETTINGS_HWND.take();
+            if let Some(lock) = SETTINGS_HWND.get() {
+                if let Ok(mut current) = lock.lock() {
+                    *current = None;
+                }
+            }
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -316,7 +324,7 @@ fn save_settings(hwnd: HWND, state: &mut SettingsState) -> Result<()> {
 
     state.cfg = cfg;
     post_event(state.parent, AppEvent::SettingsUpdated);
-    DestroyWindow(hwnd);
+    unsafe { let _ = DestroyWindow(hwnd); };
     Ok(())
 }
 
@@ -353,9 +361,11 @@ fn add_edit(
     font: HFONT,
 ) -> HWND {
     add_label(hwnd, label, 16, y, label_w, h, font);
-    let mut style = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_LEFT;
+    let mut style = windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
+        WS_CHILD.0 | WS_VISIBLE.0 | WS_BORDER.0 | WS_TABSTOP.0 | ES_LEFT as u32,
+    );
     if password {
-        style |= ES_PASSWORD;
+        style.0 |= ES_PASSWORD as u32;
     }
     unsafe {
         let edit = CreateWindowExW(
@@ -393,7 +403,9 @@ fn add_combo(
             WS_EX_CLIENTEDGE,
             PCWSTR(to_wide_null("COMBOBOX").as_ptr()),
             PCWSTR(to_wide_null("").as_ptr()),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+            windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
+                WS_CHILD.0 | WS_VISIBLE.0 | WS_TABSTOP.0 | WS_VSCROLL.0 | CBS_DROPDOWNLIST as u32,
+            ),
             16 + label_w,
             y,
             field_w,
@@ -414,7 +426,9 @@ fn add_button(hwnd: HWND, text: &str, id: usize, x: i32, y: i32, w: i32, h: i32,
             WS_EX_WINDOWEDGE,
             PCWSTR(to_wide_null("BUTTON").as_ptr()),
             PCWSTR(to_wide_null(text).as_ptr()),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+            windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
+                WS_CHILD.0 | WS_VISIBLE.0 | WS_TABSTOP.0 | BS_PUSHBUTTON as u32,
+            ),
             x,
             y,
             w,
@@ -485,7 +499,7 @@ fn get_combo_text(combo: HWND) -> String {
 fn set_edit_text(hwnd: HWND, text: &str) {
     unsafe {
         let wide = to_wide_null(text);
-        SetWindowTextW(hwnd, PCWSTR(wide.as_ptr()));
+        let _ = SetWindowTextW(hwnd, PCWSTR(wide.as_ptr()));
     }
 }
 
