@@ -16,7 +16,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CW_USEDEFAULT, ES_LEFT, ES_PASSWORD, GWLP_USERDATA, HMENU, MB_ICONERROR, MB_OK, SW_SHOW,
     WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_NCCREATE, WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CHILD,
     WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_WINDOWEDGE, WS_OVERLAPPEDWINDOW, WS_TABSTOP,
-    WS_VISIBLE, WS_VSCROLL, BS_PUSHBUTTON, CBS_DROPDOWNLIST,
+    WS_VISIBLE, WS_VSCROLL, BS_PUSHBUTTON, BS_AUTOCHECKBOX, CBS_DROPDOWNLIST,
 };
 
 static SETTINGS_HWND: OnceLock<std::sync::Mutex<Option<HWND>>> = OnceLock::new();
@@ -33,6 +33,7 @@ const ID_TIMEOUT: usize = 2106;
 const ID_MAXREC: usize = 2107;
 const ID_INJECT: usize = 2108;
 const ID_LOGLEVEL: usize = 2109;
+const ID_AUTOSTART: usize = 2110;
 
 struct SettingsState {
     cfg: AppConfig,
@@ -50,6 +51,7 @@ struct SettingsState {
     maxrec_edit: HWND,
     inject_combo: HWND,
     loglevel_combo: HWND,
+    autostart_check: HWND,
 }
 
 pub fn open(parent: HWND, cfg: AppConfig, config_path: PathBuf) {
@@ -94,6 +96,7 @@ pub fn open(parent: HWND, cfg: AppConfig, config_path: PathBuf) {
         maxrec_edit: HWND(0),
         inject_combo: HWND(0),
         loglevel_combo: HWND(0),
+        autostart_check: HWND(0),
     };
 
     build_ui(hwnd, &mut state);
@@ -209,6 +212,8 @@ fn build_ui(hwnd: HWND, state: &mut SettingsState) {
     state.inject_combo = add_combo(hwnd, "Вставка текста", ID_INJECT, y, label_w, field_w, h, state.font);
     y += h + gap;
     state.loglevel_combo = add_combo(hwnd, "Логирование", ID_LOGLEVEL, y, label_w, field_w, h, state.font);
+    y += h + gap;
+    state.autostart_check = add_checkbox(hwnd, "Автозапуск с Windows", ID_AUTOSTART, 16 + label_w, y, field_w, h, state.font);
     y += h + gap + 10;
 
     add_button(hwnd, "Сохранить", ID_SAVE, 160, y, 120, 28, state.font);
@@ -253,6 +258,7 @@ fn populate_controls(state: &SettingsState) {
             LogLevel::Debug => "debug",
         },
     );
+    set_checkbox(state.autostart_check, state.cfg.autostart);
     if let Some(dev) = &state.cfg.input_device {
         set_combo_value(state.mic_combo, dev);
     } else {
@@ -284,6 +290,7 @@ fn save_settings(hwnd: HWND, state: &mut SettingsState) -> Result<()> {
         "debug" => LogLevel::Debug,
         _ => LogLevel::Info,
     };
+    let autostart = is_checked(state.autostart_check);
     let mic = get_combo_text(state.mic_combo);
     let mic = if mic.is_empty() || mic == "default" {
         None
@@ -311,6 +318,7 @@ fn save_settings(hwnd: HWND, state: &mut SettingsState) -> Result<()> {
     cfg.record_mode = mode;
     cfg.inject_mode = inject;
     cfg.log_level = log_level;
+    cfg.autostart = autostart;
     cfg.input_device = mic;
     cfg.timeout_secs = timeout;
     cfg.max_record_secs = maxrec;
@@ -320,6 +328,10 @@ fn save_settings(hwnd: HWND, state: &mut SettingsState) -> Result<()> {
         state.store.set_api_key(&mut cfg, &api_key)?;
     } else {
         state.store.save(&cfg)?;
+    }
+
+    if let Err(err) = crate::autostart::set_enabled(cfg.autostart) {
+        log::error!("autostart update failed: {}", err);
     }
 
     state.cfg = cfg;
@@ -442,6 +454,29 @@ fn add_button(hwnd: HWND, text: &str, id: usize, x: i32, y: i32, w: i32, h: i32,
     }
 }
 
+fn add_checkbox(hwnd: HWND, text: &str, id: usize, x: i32, y: i32, w: i32, h: i32, font: HFONT) -> HWND {
+    unsafe {
+        let btn = CreateWindowExW(
+            WS_EX_WINDOWEDGE,
+            PCWSTR(to_wide_null("BUTTON").as_ptr()),
+            PCWSTR(to_wide_null(text).as_ptr()),
+            windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(
+                WS_CHILD.0 | WS_VISIBLE.0 | WS_TABSTOP.0 | BS_AUTOCHECKBOX as u32,
+            ),
+            x,
+            y,
+            w,
+            h,
+            hwnd,
+            HMENU(id as isize),
+            None,
+            None,
+        );
+        SendMessageW(btn, WM_SETFONT, WPARAM(font.0 as usize), LPARAM(1));
+        btn
+    }
+}
+
 fn combo_add(combo: HWND, text: &str) {
     unsafe {
         let wide = to_wide_null(text);
@@ -512,6 +547,20 @@ fn get_edit_text(hwnd: HWND) -> String {
         let mut buf = vec![0u16; (len + 1) as usize];
         let read = GetWindowTextW(hwnd, &mut buf);
         String::from_utf16_lossy(&buf[..read as usize])
+    }
+}
+
+fn set_checkbox(hwnd: HWND, checked: bool) {
+    unsafe {
+        let state = if checked { 1 } else { 0 };
+        SendMessageW(hwnd, windows::Win32::UI::WindowsAndMessaging::BM_SETCHECK, WPARAM(state), LPARAM(0));
+    }
+}
+
+fn is_checked(hwnd: HWND) -> bool {
+    unsafe {
+        let state = SendMessageW(hwnd, windows::Win32::UI::WindowsAndMessaging::BM_GETCHECK, WPARAM(0), LPARAM(0)).0;
+        state == 1
     }
 }
 
