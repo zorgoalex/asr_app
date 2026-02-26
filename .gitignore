@@ -12,3 +12,5 @@ target/
 .idea/
 *.rs.bk
 installer/out/
+installer/*.wixobj
+installer/*.wixpdb

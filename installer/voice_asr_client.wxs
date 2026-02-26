@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="Voice ASR Client"
+    Language="1033"
+    Version="0.1.0"
+    Manufacturer="zorgoalex"
+    UpgradeCode="9A61B0F2-7C39-4E0B-9D5E-1F3F4E7C78D0">
+
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Voice ASR Client is already installed." />
+    <MediaTemplate />
+
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Icon Id="AppIcon" SourceFile="..\target\release\voice_asr_client.exe" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLFOLDER" Name="VoiceASRClient">
+          <Component Id="MainExeComponent" Guid="*">
+            <File Id="VoiceASRExe" Source="..\target\release\voice_asr_client.exe" KeyPath="yes" />
+            <Shortcut
+              Id="StartMenuShortcut"
+              Directory="ApplicationProgramsFolder"
+              Name="Voice ASR Client"
+              WorkingDirectory="INSTALLFOLDER"
+              Icon="AppIcon"
+              IconIndex="0"
+              Advertise="no" />
+            <RemoveFolder Id="RemoveProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Voice ASR Client" />
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="Voice ASR Client" Level="1">
+      <ComponentRef Id="MainExeComponent" />
+    </Feature>
+
+    <UIRef Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\\license.rtf" />
+  </Product>
+</Wix>

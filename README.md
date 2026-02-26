@@ -65,3 +65,17 @@ cargo build --release
 .\installer\build-installer.ps1
 ```
 Инсталлятор будет создан в `installer\out`.
+
+## Инсталлятор (MSI, WiX)
+Требуется WiX Toolset v3 и Windows Feature `NetFx3` (.NET 3.5).
+
+1. Установите WiX Toolset и включите .NET 3.5:
+```powershell
+dism /online /enable-feature /featurename:NetFx3 /All /NoRestart
+winget install --id WiXToolset.WiXToolset -e --accept-package-agreements --accept-source-agreements
+```
+2. Соберите MSI:
+```powershell
+.\installer\build-msi.ps1
+```
+MSI будет создан в `installer\out`.
